@@ -1,20 +1,29 @@
 
 #include "pin.H"
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 
 // Global variables
 UINT64 insCount = 0;        //number of dynamically executed instructions
 UINT64 bblCount = 0;        //number of dynamically executed basic blocks
 
-std::ostream * out = &cerr;
+std::ostream *out = &cerr;
+
+LOCALVAR VOID *WriteEa[PIN_MAX_THREADS];
 
 // Command line switches
 KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE,  "pintool",
     "o", "res.out", "specify file name for MyPinTool output");
 
+KNOB<BOOL>   KnobFlush(KNOB_MODE_WRITEONCE,                "pintool",
+    "flush", "0", "Flush output after every instruction");
+
 KNOB<BOOL>   KnobCount(KNOB_MODE_WRITEONCE,  "pintool",
     "count", "1", "count instructions, basic blocks and threads in the application");
+
+KNOB<BOOL>   KnobTraceMemory(KNOB_MODE_WRITEONCE,       "pintool",
+    "memory", "1", "Trace memory");
 
 
 // Utilities
@@ -31,6 +40,155 @@ INT32 Usage()
     return -1;
 }
 
+LOCALFUN BOOL Emit(THREADID threadid)
+{
+    return true;
+}
+
+LOCALFUN VOID Flush()
+{
+    if (KnobFlush)
+        *out << flush;
+}
+
+
+VOID ShowN(UINT32 n, VOID *ea)
+{
+    out->unsetf(ios::showbase);
+    // Print out the bytes in "big endian even though they are in memory little endian.
+    // This is most natural for 8B and 16B quantities that show up most frequently.
+    // The address pointed to
+    *out << std::setfill('0');
+    UINT8 b[512];
+    UINT8* x;
+    if (n > 512)
+        x = new UINT8[n];
+    else
+        x = b;
+    PIN_SafeCopy(x,static_cast<UINT8*>(ea),n);
+    for (UINT32 i = 0; i < n; i++)
+    {
+        *out << std::setw(2) <<  static_cast<UINT32>(x[n-i-1]);
+        if (((reinterpret_cast<ADDRINT>(ea)+n-i-1)&0x3)==0 && i<n-1)
+            *out << "_";
+    }
+    *out << std::setfill(' ');
+    out->setf(ios::showbase);
+    if (n>512)
+        delete [] x;
+}
+
+VOID EmitWrite(THREADID threadid, UINT32 size)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out << "                                 Write ";
+
+    VOID * ea = WriteEa[threadid];
+
+    switch(size)
+    {
+      case 0:
+        *out << "0 repeat count" << endl;
+        break;
+
+      case 1:
+        {
+            UINT8 x;
+            PIN_SafeCopy(&x, static_cast<UINT8*>(ea), 1);
+            *out << "*(UINT8*)" << ea << " = " << static_cast<UINT32>(x) << endl;
+        }
+        break;
+
+      case 2:
+        {
+            UINT16 x;
+            PIN_SafeCopy(&x, static_cast<UINT16*>(ea), 2);
+            *out << "*(UINT16*)" << ea << " = " << x << endl;
+        }
+        break;
+
+      case 4:
+        {
+            UINT32 x;
+            PIN_SafeCopy(&x, static_cast<UINT32*>(ea), 4);
+            *out << "*(UINT32*)" << ea << " = " << x << endl;
+        }
+        break;
+
+      case 8:
+        {
+            UINT64 x;
+            PIN_SafeCopy(&x, static_cast<UINT64*>(ea), 8);
+            *out << "*(UINT64*)" << ea << " = " << x << endl;
+        }
+        break;
+
+      default:
+        *out << "*(UINT" << dec << size * 8 << hex << ")" << ea << " = ";
+        ShowN(size,ea);
+        *out << endl;
+        break;
+    }
+
+    Flush();
+}
+
+VOID EmitRead(THREADID threadid, VOID * ea, UINT32 size)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out << "                                 Read ";
+
+    switch(size)
+    {
+      case 0:
+        *out << "0 repeat count" << endl;
+        break;
+
+      case 1:
+        {
+            UINT8 x;
+            PIN_SafeCopy(&x,static_cast<UINT8*>(ea),1);
+            *out << static_cast<UINT32>(x) << " = *(UINT8*)" << ea << endl;
+        }
+        break;
+
+      case 2:
+        {
+            UINT16 x;
+            PIN_SafeCopy(&x,static_cast<UINT16*>(ea),2);
+            *out << x << " = *(UINT16*)" << ea << endl;
+        }
+        break;
+
+      case 4:
+        {
+            UINT32 x;
+            PIN_SafeCopy(&x,static_cast<UINT32*>(ea),4);
+            *out << x << " = *(UINT32*)" << ea << endl;
+        }
+        break;
+
+      case 8:
+        {
+            UINT64 x;
+            PIN_SafeCopy(&x,static_cast<UINT64*>(ea),8);
+            *out << x << " = *(UINT64*)" << ea << endl;
+        }
+        break;
+
+      default:
+        ShowN(size,ea);
+        *out << " = *(UINT" << dec << size * 8 << hex << ")" << ea << endl;
+        break;
+    }
+
+    Flush();
+}
+
 // Analysis routines
 /*!
  * Increase counter of the executed basic blocks and instructions.
@@ -42,6 +200,41 @@ VOID CountBbl(UINT32 numInstInBbl)
 {
     bblCount++;
     insCount += numInstInBbl;
+}
+
+VOID CaptureWriteEa(THREADID threadid, VOID * addr)
+{
+    WriteEa[threadid] = addr;
+}
+
+VOID MemoryTrace(INS ins)
+{
+    if (!KnobTraceMemory)
+        return;
+
+    if (INS_IsMemoryWrite(ins))
+    {
+        INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(CaptureWriteEa), IARG_THREAD_ID, IARG_MEMORYWRITE_EA, IARG_END);
+
+        if (INS_HasFallThrough(ins))
+        {
+            INS_InsertPredicatedCall(ins, IPOINT_AFTER, AFUNPTR(EmitWrite), IARG_THREAD_ID, IARG_MEMORYWRITE_SIZE, IARG_END);
+        }
+        if (INS_IsBranchOrCall(ins))
+        {
+            INS_InsertPredicatedCall(ins, IPOINT_TAKEN_BRANCH, AFUNPTR(EmitWrite), IARG_THREAD_ID, IARG_MEMORYWRITE_SIZE, IARG_END);
+        }
+    }
+
+    if (INS_HasMemoryRead2(ins))
+    {
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead), IARG_THREAD_ID, IARG_MEMORYREAD2_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+    }
+
+    if (INS_IsMemoryRead(ins) && !INS_IsPrefetch(ins))
+    {
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead), IARG_THREAD_ID, IARG_MEMORYREAD_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+    }
 }
 
 // Instrumentation callbacks
@@ -60,6 +253,11 @@ VOID Trace(TRACE trace, VOID *v)
     {
         // Insert a call to CountBbl() before every basic bloc, passing the number of instructions
         BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR)CountBbl, IARG_UINT32, BBL_NumIns(bbl), IARG_END);
+
+        for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins))
+        {
+            MemoryTrace(ins);
+        }
     }
 }
 
