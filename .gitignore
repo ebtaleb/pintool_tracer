@@ -1,0 +1,9 @@
+ obj-intel64/
+*.out*
+*.log*
+ *.xml
+ *.makefile.copy
+ *.core
+ core.*
+*.swp
+
