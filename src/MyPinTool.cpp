@@ -12,6 +12,7 @@ std::ostream *out = &cerr;
 
 LOCALVAR VOID *WriteEa[PIN_MAX_THREADS];
 
+
 // Command line switches
 KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE,  "pintool",
     "o", "res.out", "specify file name for MyPinTool output");
@@ -23,7 +24,15 @@ KNOB<BOOL>   KnobCount(KNOB_MODE_WRITEONCE,  "pintool",
     "count", "1", "count instructions, basic blocks and threads in the application");
 
 KNOB<BOOL>   KnobTraceMemory(KNOB_MODE_WRITEONCE,       "pintool",
-    "memory", "1", "Trace memory");
+    "memory", "0", "Trace memory");
+
+KNOB<BOOL>   KnobTraceInstructions(KNOB_MODE_WRITEONCE,       "pintool",
+    "instruction", "1", "Trace instructions");
+
+KNOB<BOOL>   KnobSymbols(KNOB_MODE_WRITEONCE,       "pintool",
+    "symbols", "0", "Include symbol information");
+KNOB<BOOL>   KnobLines(KNOB_MODE_WRITEONCE,       "pintool",
+    "lines", "0", "Include line number information");
 
 
 // Utilities
@@ -50,6 +59,84 @@ LOCALFUN VOID Flush()
     if (KnobFlush)
         *out << flush;
 }
+
+VOID EmitNoValues(THREADID threadid, string * str)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out
+        << *str
+        << endl;
+
+    Flush();
+}
+
+VOID Emit1Values(THREADID threadid, string * str, string * reg1str, ADDRINT reg1val)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out
+        << *str << " | "
+        << *reg1str << " = " << reg1val
+        << endl;
+
+    Flush();
+}
+
+VOID Emit2Values(THREADID threadid, string * str, string * reg1str, ADDRINT reg1val, string * reg2str, ADDRINT reg2val)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out
+        << *str << " | "
+        << *reg1str << " = " << reg1val
+        << ", " << *reg2str << " = " << reg2val
+        << endl;
+
+    Flush();
+}
+
+VOID Emit3Values(THREADID threadid, string * str, string * reg1str, ADDRINT reg1val, string * reg2str, ADDRINT reg2val, string * reg3str, ADDRINT reg3val)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out
+        << *str << " | "
+        << *reg1str << " = " << reg1val
+        << ", " << *reg2str << " = " << reg2val
+        << ", " << *reg3str << " = " << reg3val
+        << endl;
+
+    Flush();
+}
+
+
+VOID Emit4Values(THREADID threadid, string * str, string * reg1str, ADDRINT reg1val, string * reg2str, ADDRINT reg2val, string * reg3str, ADDRINT reg3val, string * reg4str, ADDRINT reg4val)
+{
+    if (!Emit(threadid))
+        return;
+
+    *out
+        << *str << " | "
+        << *reg1str << " = " << reg1val
+        << ", " << *reg2str << " = " << reg2val
+        << ", " << *reg3str << " = " << reg3val
+        << ", " << *reg4str << " = " << reg4val
+        << endl;
+
+    Flush();
+}
+
+const UINT32 MaxEmitArgs = 4;
+
+AFUNPTR emitFuns[] =
+{
+    AFUNPTR(EmitNoValues), AFUNPTR(Emit1Values), AFUNPTR(Emit2Values), AFUNPTR(Emit3Values), AFUNPTR(Emit4Values)
+};
 
 
 VOID ShowN(UINT32 n, VOID *ea)
@@ -83,7 +170,7 @@ VOID EmitWrite(THREADID threadid, UINT32 size)
     if (!Emit(threadid))
         return;
 
-    *out << "                                 Write ";
+    *out << "Write ";
 
     VOID * ea = WriteEa[threadid];
 
@@ -140,7 +227,7 @@ VOID EmitRead(THREADID threadid, VOID * ea, UINT32 size)
     if (!Emit(threadid))
         return;
 
-    *out << "                                 Read ";
+    *out << "Read ";
 
     switch(size)
     {
@@ -189,6 +276,55 @@ VOID EmitRead(THREADID threadid, VOID * ea, UINT32 size)
     Flush();
 }
 
+VOID AddEmit(INS ins, IPOINT point, string & traceString, UINT32 regCount, REG regs[])
+{
+    if (regCount > MaxEmitArgs)
+        regCount = MaxEmitArgs;
+
+    IARGLIST args = IARGLIST_Alloc();
+    for (UINT32 i = 0; i < regCount; i++)
+    {
+        IARGLIST_AddArguments(args, IARG_PTR, new string(REG_StringShort(regs[i])), IARG_REG_VALUE, regs[i], IARG_END);
+    }
+
+    INS_InsertCall(ins, point, emitFuns[regCount], IARG_THREAD_ID,
+                   IARG_PTR, new string(traceString),
+                   IARG_IARGLIST, args,
+                   IARG_END);
+    IARGLIST_Free(args);
+}
+
+string FormatAddress(ADDRINT address, RTN rtn)
+{
+    string s = StringFromAddrint(address);
+
+    if (KnobSymbols && RTN_Valid(rtn))
+    {
+        s += " " + IMG_Name(SEC_Img(RTN_Sec(rtn))) + ":";
+        s += RTN_Name(rtn);
+
+        ADDRINT delta = address - RTN_Address(rtn);
+        if (delta != 0)
+        {
+            s += "+" + hexstr(delta, 4);
+        }
+    }
+
+    if (KnobLines)
+    {
+        INT32 line;
+        string file;
+
+        PIN_GetSourceLocation(address, NULL, &line, &file);
+
+        if (file != "")
+        {
+            s += " (" + file + ":" + decstr(line) + ")";
+        }
+    }
+    return s;
+}
+
 // Analysis routines
 /*!
  * Increase counter of the executed basic blocks and instructions.
@@ -207,33 +343,86 @@ VOID CaptureWriteEa(THREADID threadid, VOID * addr)
     WriteEa[threadid] = addr;
 }
 
+VOID InstructionTrace(TRACE trace, INS ins)
+{
+    //if (!KnobTraceInstructions)
+        //return;
+
+    ADDRINT addr = INS_Address(ins);
+    ASSERTX(addr);
+
+    // Format the string at instrumentation time
+    string traceString = "";
+    string astring = FormatAddress(INS_Address(ins), TRACE_Rtn(trace));
+    for (INT32 length = astring.length(); length < 30; length++)
+    {
+        traceString += " ";
+    }
+    traceString = astring + traceString;
+
+    traceString += " " + INS_Disassemble(ins);
+
+    for (INT32 length = traceString.length(); length < 80; length++)
+    {
+        traceString += " ";
+    }
+
+    INT32 regCount = 0;
+    REG regs[20];
+
+    for (UINT32 i = 0; i < INS_MaxNumWRegs(ins); i++)
+    {
+        REG x = REG_FullRegName(INS_RegW(ins, i));
+
+        if (REG_is_gr(x)
+#if defined(TARGET_IA32)
+            || x == REG_EFLAGS
+#elif defined(TARGET_IA32E)
+            || x == REG_RFLAGS
+#endif
+        )
+        {
+            regs[regCount] = x;
+            regCount++;
+        }
+    }
+
+    if (INS_HasFallThrough(ins))
+    {
+        AddEmit(ins, IPOINT_AFTER, traceString, regCount, regs);
+    }
+    if (INS_IsBranchOrCall(ins))
+    {
+        AddEmit(ins, IPOINT_TAKEN_BRANCH, traceString, regCount, regs);
+    }
+}
+
 VOID MemoryTrace(INS ins)
 {
     if (!KnobTraceMemory)
         return;
 
-    if (INS_IsMemoryWrite(ins))
-    {
+    if (INS_IsMemoryWrite(ins)) {
         INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(CaptureWriteEa), IARG_THREAD_ID, IARG_MEMORYWRITE_EA, IARG_END);
 
-        if (INS_HasFallThrough(ins))
-        {
+        if (INS_HasFallThrough(ins)) {
             INS_InsertPredicatedCall(ins, IPOINT_AFTER, AFUNPTR(EmitWrite), IARG_THREAD_ID, IARG_MEMORYWRITE_SIZE, IARG_END);
         }
-        if (INS_IsBranchOrCall(ins))
-        {
-            INS_InsertPredicatedCall(ins, IPOINT_TAKEN_BRANCH, AFUNPTR(EmitWrite), IARG_THREAD_ID, IARG_MEMORYWRITE_SIZE, IARG_END);
+
+        if (INS_IsBranchOrCall(ins)) {
+            INS_InsertPredicatedCall(ins, IPOINT_TAKEN_BRANCH, AFUNPTR(EmitWrite),
+                                     IARG_THREAD_ID, IARG_MEMORYWRITE_SIZE, IARG_END);
         }
     }
 
-    if (INS_HasMemoryRead2(ins))
-    {
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead), IARG_THREAD_ID, IARG_MEMORYREAD2_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+    if (INS_HasMemoryRead2(ins)) {
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead),
+                                 IARG_THREAD_ID, IARG_MEMORYREAD2_EA, IARG_MEMORYREAD_SIZE, IARG_END);
     }
 
-    if (INS_IsMemoryRead(ins) && !INS_IsPrefetch(ins))
-    {
-        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead), IARG_THREAD_ID, IARG_MEMORYREAD_EA, IARG_MEMORYREAD_SIZE, IARG_END);
+    if (INS_IsMemoryRead(ins) && !INS_IsPrefetch(ins)) {
+        INS_InsertPredicatedCall(ins, IPOINT_BEFORE, AFUNPTR(EmitRead),
+                                 IARG_THREAD_ID, IARG_MEMORYREAD_EA, IARG_MEMORYREAD_SIZE, IARG_END);
     }
 }
 
@@ -249,14 +438,14 @@ VOID MemoryTrace(INS ins)
 VOID Trace(TRACE trace, VOID *v)
 {
     // Visit every basic block in the trace
-    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl))
-    {
+    for (BBL bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
         // Insert a call to CountBbl() before every basic bloc, passing the number of instructions
         BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR)CountBbl, IARG_UINT32, BBL_NumIns(bbl), IARG_END);
 
-        for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins))
-        {
-            MemoryTrace(ins);
+        for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+
+            InstructionTrace(trace, ins);
+            //MemoryTrace(ins);
         }
     }
 }
