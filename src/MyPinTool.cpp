@@ -1,5 +1,6 @@
 
 #include "pin.H"
+#include "instlib.H"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -8,9 +9,13 @@
 UINT64 insCount = 0;        //number of dynamically executed instructions
 UINT64 bblCount = 0;        //number of dynamically executed basic blocks
 
+LOCALVAR INSTLIB::ICOUNT icount;
+
 std::ostream *out = &cerr;
 
 LOCALVAR VOID *WriteEa[PIN_MAX_THREADS];
+
+LOCALVAR INT32 indent = 0;
 
 
 // Command line switches
@@ -27,7 +32,10 @@ KNOB<BOOL>   KnobTraceMemory(KNOB_MODE_WRITEONCE,       "pintool",
     "memory", "0", "Trace memory");
 
 KNOB<BOOL>   KnobTraceInstructions(KNOB_MODE_WRITEONCE,       "pintool",
-    "instruction", "1", "Trace instructions");
+    "instruction", "0", "Trace instructions");
+
+KNOB<BOOL>   KnobTraceCalls(KNOB_MODE_WRITEONCE,       "pintool",
+    "call", "1", "Trace calls");
 
 KNOB<BOOL>   KnobSymbols(KNOB_MODE_WRITEONCE,       "pintool",
     "symbols", "0", "Include symbol information");
@@ -58,6 +66,111 @@ LOCALFUN VOID Flush()
 {
     if (KnobFlush)
         *out << flush;
+}
+
+VOID Indent()
+{
+    for (INT32 i = 0; i < indent; i++)
+    {
+        *out << "| ";
+    }
+}
+
+string FormatAddress(ADDRINT address, RTN rtn)
+{
+    string s = StringFromAddrint(address);
+
+    if (KnobSymbols && RTN_Valid(rtn))
+    {
+        s += " " + IMG_Name(SEC_Img(RTN_Sec(rtn))) + ":";
+        s += RTN_Name(rtn);
+
+        ADDRINT delta = address - RTN_Address(rtn);
+        if (delta != 0)
+        {
+            s += "+" + hexstr(delta, 4);
+        }
+    }
+
+    if (KnobLines)
+    {
+        INT32 line;
+        string file;
+
+        PIN_GetSourceLocation(address, NULL, &line, &file);
+
+        if (file != "")
+        {
+            s += " (" + file + ":" + decstr(line) + ")";
+        }
+    }
+    return s;
+}
+
+VOID EmitICount()
+{
+    *out << setw(10) << dec << icount.Count() << hex << " ";
+}
+
+VOID EmitDirectCall(THREADID threadid, string * str, INT32 tailCall, ADDRINT arg0, ADDRINT arg1)
+{
+    if (!Emit(threadid))
+        return;
+
+    EmitICount();
+
+    if (tailCall)
+    {
+        // A tail call is like an implicit return followed by an immediate call
+        indent--;
+    }
+
+    Indent();
+    *out << *str << "(" << arg0 << ", " << arg1 << ", ...)" << endl;
+
+    indent++;
+
+    Flush();
+}
+
+VOID EmitIndirectCall(THREADID threadid, string * str, ADDRINT target, ADDRINT arg0, ADDRINT arg1)
+{
+    if (!Emit(threadid))
+        return;
+
+    EmitICount();
+    Indent();
+    *out << *str;
+
+    PIN_LockClient();
+
+    string s = FormatAddress(target, RTN_FindByAddress(target));
+
+    PIN_UnlockClient();
+
+    *out << s << "(" << arg0 << ", " << arg1 << ", ...)" << endl;
+    indent++;
+
+    Flush();
+}
+
+VOID EmitReturn(THREADID threadid, string * str, ADDRINT ret0)
+{
+    if (!Emit(threadid))
+        return;
+
+    EmitICount();
+    indent--;
+    if (indent < 0)
+    {
+        *out << "@@@ return underflow\n";
+        indent = 0;
+    }
+
+    Indent();
+    *out << *str << " returns: " << ret0 << endl;
+
+    Flush();
 }
 
 VOID EmitNoValues(THREADID threadid, string * str)
@@ -294,36 +407,6 @@ VOID AddEmit(INS ins, IPOINT point, string & traceString, UINT32 regCount, REG r
     IARGLIST_Free(args);
 }
 
-string FormatAddress(ADDRINT address, RTN rtn)
-{
-    string s = StringFromAddrint(address);
-
-    if (KnobSymbols && RTN_Valid(rtn))
-    {
-        s += " " + IMG_Name(SEC_Img(RTN_Sec(rtn))) + ":";
-        s += RTN_Name(rtn);
-
-        ADDRINT delta = address - RTN_Address(rtn);
-        if (delta != 0)
-        {
-            s += "+" + hexstr(delta, 4);
-        }
-    }
-
-    if (KnobLines)
-    {
-        INT32 line;
-        string file;
-
-        PIN_GetSourceLocation(address, NULL, &line, &file);
-
-        if (file != "")
-        {
-            s += " (" + file + ":" + decstr(line) + ")";
-        }
-    }
-    return s;
-}
 
 // Analysis routines
 /*!
@@ -426,6 +509,78 @@ VOID MemoryTrace(INS ins)
     }
 }
 
+VOID CallTrace(TRACE trace, INS ins)
+{
+    if (!KnobTraceCalls)
+        return;
+
+    if (INS_IsCall(ins) && !INS_IsDirectBranchOrCall(ins))
+    {
+        // Indirect call
+        string s = "Call " + FormatAddress(INS_Address(ins), TRACE_Rtn(trace));
+        s += " -> ";
+
+        INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(EmitIndirectCall), IARG_THREAD_ID,
+                       IARG_PTR, new string(s), IARG_BRANCH_TARGET_ADDR,
+                       IARG_G_ARG0_CALLER, IARG_G_ARG1_CALLER, IARG_END);
+    }
+    else if (INS_IsDirectBranchOrCall(ins))
+    {
+        // Is this a tail call?
+        RTN sourceRtn = TRACE_Rtn(trace);
+        RTN destRtn = RTN_FindByAddress(INS_DirectBranchOrCallTargetAddress(ins));
+
+        if (INS_IsCall(ins)         // conventional call
+            || sourceRtn != destRtn // tail call
+        )
+        {
+            BOOL tailcall = !INS_IsCall(ins);
+
+            string s = "";
+            if (tailcall)
+            {
+                s += "Tailcall ";
+            }
+            else
+            {
+                if( INS_IsProcedureCall(ins) )
+                    s += "Call ";
+                else
+                {
+                    s += "PcMaterialization ";
+                    tailcall=1;
+                }
+
+            }
+
+            //s += INS_Mnemonic(ins) + " ";
+
+            s += FormatAddress(INS_Address(ins), TRACE_Rtn(trace));
+            s += " -> ";
+
+            ADDRINT target = INS_DirectBranchOrCallTargetAddress(ins);
+
+            s += FormatAddress(target, RTN_FindByAddress(target));
+
+            INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(EmitDirectCall),
+                           IARG_THREAD_ID, IARG_PTR, new string(s), IARG_BOOL, tailcall,
+                           IARG_G_ARG0_CALLER, IARG_G_ARG1_CALLER, IARG_END);
+        }
+    }
+    else if (INS_IsRet(ins))
+    {
+        RTN rtn =  TRACE_Rtn(trace);
+
+#if defined(TARGET_LINUX) && defined(TARGET_IA32)
+//        if( RTN_Name(rtn) ==  "_dl_debug_state") return;
+        if( RTN_Valid(rtn) && RTN_Name(rtn) ==  "_dl_runtime_resolve") return;
+#endif
+        string tracestring = "Return " + FormatAddress(INS_Address(ins), rtn);
+        INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(EmitReturn),
+                       IARG_THREAD_ID, IARG_PTR, new string(tracestring), IARG_G_RESULT0, IARG_END);
+    }
+}
+
 // Instrumentation callbacks
 /*!
  * Insert call to the CountBbl() analysis routine before every basic block
@@ -444,8 +599,9 @@ VOID Trace(TRACE trace, VOID *v)
 
         for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
 
-            InstructionTrace(trace, ins);
+            //InstructionTrace(trace, ins);
             //MemoryTrace(ins);
+            CallTrace(trace, ins);
         }
     }
 }
@@ -462,6 +618,7 @@ VOID Fini(INT32 code, VOID *v)
     *out <<  "===============================================" << endl;
     *out <<  "MyPinTool analysis results: " << endl;
     *out <<  "Number of instructions: " << insCount  << endl;
+    *out <<  icount.Count() << endl;
     *out <<  "Number of basic blocks: " << bblCount  << endl;
     *out <<  "===============================================" << endl;
 }
