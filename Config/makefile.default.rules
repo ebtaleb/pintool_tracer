@@ -108,6 +108,12 @@ $(HELLO_APP):
 $(HELLO_APP_DWARF4):
 	$(MAKE) -C $(TOOLS_ROOT)/Utils dir $(OBJDIR)hello_dwarf4$(EXE_SUFFIX)
 
+$(DISABLE_ASLR):
+	$(MAKE) -C $(TOOLS_ROOT)/Utils dir $(OBJDIR)disable-aslr$(EXE_SUFFIX)
+
+$(ATTACH_LAUNCHER):
+	$(MAKE) -C $(TOOLS_ROOT)/Utils dir $(OBJDIR)attachLauncher$(EXE_SUFFIX)
+
 $(CHECKAVX):
 	$(MAKE) -C $(TOOLS_ROOT)/Utils dir $(OBJDIR)avx_check$(EXE_SUFFIX)
 
@@ -144,8 +150,9 @@ $(OBJDIR)%.failed:
 .PRECIOUS: $(OBJDIR)%.tested $(OBJDIR)%.failed
 
 # Don't delete the files generated in the Utils directory.
-.PRECIOUS: $(TESTAPP) $(CHECKAVX) $(CHECKAVX2) $(CHECKTSX) $(THREADLIB)
-.PRECIOUS: $(SUPPORTS_AVX_OBJ) $(SUPPORTS_AVX2_OBJ)
+.PRECIOUS: $(TESTAPP) $(HELLO_APP) $(HELLO_APP_DWARF4) $(DISABLE_ASLR) $(ATTACH_LAUNCHER)
+.PRECIOUS: $(CHECKAVX) $(CHECKAVX2) $(CHECKTSX)
+.PRECIOUS: $(THREADLIB) $(SUPPORTS_AVX_OBJ) $(SUPPORTS_AVX2_OBJ)
 
 # Accelerate the make process and prevent errors.
 .PHONY: tools apps objects dlls libs avxcheck tsxcheck install test sanity summary clean %.test %.wrap
