@@ -4,7 +4,7 @@
 #
 ##############################################################
 
-PIN_ROOT=/home/jmbto/Desktop/RE/pint/pin-2.14-67254-gcc.4.4.7-linux/
+PIN_ROOT=/home/jmbto/Desktop/work/ctf/pin/
 
 # If the tool is built out of the kit, PIN_ROOT must be specified in the make invocation and point to the kit root.
 ifdef PIN_ROOT

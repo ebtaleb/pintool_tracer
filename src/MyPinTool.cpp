@@ -26,7 +26,7 @@ KNOB<BOOL>   KnobFlush(KNOB_MODE_WRITEONCE,                "pintool",
     "flush", "0", "Flush output after every instruction");
 
 KNOB<BOOL>   KnobCount(KNOB_MODE_WRITEONCE,  "pintool",
-    "count", "1", "count instructions, basic blocks and threads in the application");
+    "count", "0", "count instructions, basic blocks and threads in the application");
 
 KNOB<BOOL>   KnobTraceMemory(KNOB_MODE_WRITEONCE,       "pintool",
     "memory", "0", "Trace memory");
