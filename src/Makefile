@@ -4,7 +4,7 @@
 #
 ##############################################################
 
-PIN_ROOT=/home/jmbto/Desktop/work/RE/pin
+PIN_ROOT=../../pin-3.0-76991-gcc-linux
 
 # If the tool is built out of the kit, PIN_ROOT must be specified in the make invocation and point to the kit root.
 ifdef PIN_ROOT
@@ -22,6 +22,16 @@ include $(TOOLS_ROOT)/Config/makefile.default.rules
 #
 ##############################################################
 
-help-run:
-	@echo "Please run $(PIN_ROOT)/pin -ifeellucky -injection child -t dir/MyPinTool.so -- <app>"
+PROG=/bin/ls
 
+help-run:
+	@echo "Please run $(PIN_ROOT)/pin -injection child -t dir/MyPinTool.so <knobs> -- <app>"
+
+run-ins:
+	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -instruction -- $(PROG)
+
+run-mem:
+	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -memory -- $(PROG)
+
+run-call:
+	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -call -- $(PROG)

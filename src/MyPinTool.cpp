@@ -26,7 +26,7 @@ KNOB<BOOL>   KnobFlush(KNOB_MODE_WRITEONCE,                "pintool",
     "flush", "0", "Flush output after every instruction");
 
 KNOB<BOOL>   KnobCount(KNOB_MODE_WRITEONCE,  "pintool",
-    "count", "0", "count instructions, basic blocks and threads in the application");
+    "count", "1", "count instructions, basic blocks and threads in the application");
 
 KNOB<BOOL>   KnobTraceMemory(KNOB_MODE_WRITEONCE,       "pintool",
     "memory", "0", "Trace memory");
@@ -35,7 +35,7 @@ KNOB<BOOL>   KnobTraceInstructions(KNOB_MODE_WRITEONCE,       "pintool",
     "instruction", "0", "Trace instructions");
 
 KNOB<BOOL>   KnobTraceCalls(KNOB_MODE_WRITEONCE,       "pintool",
-    "call", "1", "Trace calls");
+    "call", "0", "Trace calls");
 
 KNOB<BOOL>   KnobSymbols(KNOB_MODE_WRITEONCE,       "pintool",
     "symbols", "0", "Include symbol information");
@@ -428,8 +428,8 @@ VOID CaptureWriteEa(THREADID threadid, VOID * addr)
 
 VOID InstructionTrace(TRACE trace, INS ins)
 {
-    //if (!KnobTraceInstructions)
-        //return;
+    if (!KnobTraceInstructions)
+        return;
 
     ADDRINT addr = INS_Address(ins);
     ASSERTX(addr);
@@ -599,8 +599,8 @@ VOID Trace(TRACE trace, VOID *v)
 
         for (INS ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
 
-            //InstructionTrace(trace, ins);
-            //MemoryTrace(ins);
+            InstructionTrace(trace, ins);
+            MemoryTrace(ins);
             CallTrace(trace, ins);
         }
     }
