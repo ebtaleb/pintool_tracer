@@ -14,6 +14,7 @@ bool main_reached=false;
 INT64 logfilter=1;
 ADDRINT filter_begin=0;
 ADDRINT filter_end=0;
+ADDRINT entryPoint=0;
 
 struct moduledata_t
 {
@@ -178,12 +179,32 @@ void dump_shellcode(std::string* instructionString, CONTEXT* ctxt)
     *out << ss.str() << *instructionString << dumpContext(ctxt) << std::endl;
 }
 
+static void DoBreakpoint(CONTEXT *ctxt, THREADID tid)
+{
+    //if (IsFirstBreakpoint)
+    //{
+        //std::cout << "Tool stopping at breakpoint" << std::endl;
+        //IsFirstBreakpoint = FALSE;
+        //PIN_ApplicationBreakpoint(ctxt, tid, KnobWaitForDebugger.Value(), "The tool wants to stop");
+        //PIN_ApplicationBreakpoint(ctxt, tid, true, "The tool wants to stop");
+    //}
+}
+
 void traceInst(INS ins, VOID*)
 {
     ADDRINT ceip = INS_Address(ins);
 
     if(ExcludedAddress(ceip))
         return;
+
+    if (ceip == entryPoint) {
+        INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(DoBreakpoint),
+                       IARG_CONTEXT, // IARG_CONST_CONTEXT has much lower overhead
+                                     // than IARG_CONTEX for passing the CONTEXT*
+                                     // to the analysis routine. Note that IARG_CONST_CONTEXT
+                                     // passes a read-only CONTEXT* to the analysis routine
+                       IARG_THREAD_ID, IARG_END);
+    }
 
     std::string mod_name = getModule(ceip);
 
@@ -214,6 +235,50 @@ VOID Trace(TRACE trace, VOID *v)
     }
 }
 
+#define START "_start"
+#define MAIN "main"
+
+VOID Image(IMG img, VOID *v)
+{
+    //  Find the malloc() function.
+    RTN mallocRtn = RTN_FindByName(img, START);
+    if (RTN_Valid(mallocRtn))
+    {
+
+        cout << "found _start at 0x" << hex << RTN_Address(mallocRtn) << std::endl;
+        //RTN_Open(mallocRtn);
+
+        //// Instrument malloc() to print the input argument value and the return value.
+        //RTN_InsertCall(mallocRtn, IPOINT_BEFORE, (AFUNPTR)Arg1Before,
+                       //IARG_ADDRINT, MALLOC,
+                       //IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                       //IARG_END);
+        //RTN_InsertCall(mallocRtn, IPOINT_AFTER, (AFUNPTR)MallocAfter,
+                       //IARG_FUNCRET_EXITPOINT_VALUE, IARG_END);
+
+        //RTN_Close(mallocRtn);
+    }
+
+    // Find the free() function.
+    RTN freeRtn = RTN_FindByName(img, MAIN);
+    if (RTN_Valid(freeRtn))
+    {
+        cout << "found main at 0x" << hex << RTN_Address(freeRtn) << std::endl;
+        //RTN_Open(freeRtn);
+        //// Instrument free() to print the input argument value.
+        //RTN_InsertCall(freeRtn, IPOINT_BEFORE, (AFUNPTR)Arg1Before,
+                       //IARG_ADDRINT, FREE,
+                       //IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                       //IARG_END);
+        //RTN_Close(freeRtn);
+    }
+
+    if (IMG_IsMainExecutable(img)) {
+        entryPoint = IMG_Entry(img);
+        cout << hex << entryPoint << std::endl;
+    }
+}
+
 /*!
  * The main procedure of the tool.
  * This function is called when the application image is loaded but not yet started.
@@ -223,6 +288,7 @@ VOID Trace(TRACE trace, VOID *v)
  */
 int main(int argc, char *argv[])
 {
+    PIN_InitSymbols();
     // Initialize PIN library. Print help message if -h(elp) is specified
     // in the command line or the command line is invalid
     if( PIN_Init(argc,argv) )
@@ -270,6 +336,8 @@ int main(int argc, char *argv[])
 
     // Register function to be called to instrument traces
     TRACE_AddInstrumentFunction(Trace, 0);
+
+    IMG_AddInstrumentFunction(Image, 0);
 
     if (!KnobOutputFile.Value().empty())
     {

@@ -22,16 +22,6 @@ include $(TOOLS_ROOT)/Config/makefile.default.rules
 #
 ##############################################################
 
-PROG=/bin/ls
-
-help-run:
-	@echo "Please run $(PIN_ROOT)/pin -injection child -t dir/MyPinTool.so <knobs> -- <app>"
-
-run-ins:
-	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -instruction -- $(PROG)
-
-run-mem:
-	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -memory -- $(PROG)
-
-run-call:
-	$(PIN_ROOT)/pin -injection child -t obj-intel64/MyPinTool.so -call -- $(PROG)
+run-debug:
+	gcc -m32 -g hw.c
+	$(PIN_ROOT)/pin -appdebug -t obj-ia32/MyPinTool.so -f 2 -- ./a.out
