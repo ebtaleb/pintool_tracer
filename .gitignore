@@ -7,4 +7,4 @@
  *.core
  core.*
 *.swp
-
+*.gdb_history
