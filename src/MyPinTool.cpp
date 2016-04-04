@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <map>
 
+#include <unistd.h>
+#include <fcntl.h>
+
 std::ostream *out = &cerr;
 
 ADDRINT main_begin;
@@ -176,11 +179,11 @@ void dump_shellcode(std::string* instructionString, CONTEXT* ctxt)
 
     //ss << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EIP);
     //return ss.str();
-    *out << ss.str() << *instructionString << dumpContext(ctxt) << std::endl;
+    *out << ss.str() << *instructionString << dumpContext(ctxt) << endl;
 }
 
-static void DoBreakpoint(CONTEXT *ctxt, THREADID tid)
-{
+//static void DoBreakpoint(CONTEXT *ctxt, THREADID tid)
+//{
     //if (IsFirstBreakpoint)
     //{
         //std::cout << "Tool stopping at breakpoint" << std::endl;
@@ -188,7 +191,7 @@ static void DoBreakpoint(CONTEXT *ctxt, THREADID tid)
         //PIN_ApplicationBreakpoint(ctxt, tid, KnobWaitForDebugger.Value(), "The tool wants to stop");
         //PIN_ApplicationBreakpoint(ctxt, tid, true, "The tool wants to stop");
     //}
-}
+//}
 
 void traceInst(INS ins, VOID*)
 {
@@ -198,20 +201,56 @@ void traceInst(INS ins, VOID*)
         return;
 
     if (ceip == entryPoint) {
-        INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(DoBreakpoint),
-                       IARG_CONTEXT, // IARG_CONST_CONTEXT has much lower overhead
-                                     // than IARG_CONTEX for passing the CONTEXT*
-                                     // to the analysis routine. Note that IARG_CONST_CONTEXT
-                                     // passes a read-only CONTEXT* to the analysis routine
-                       IARG_THREAD_ID, IARG_END);
+
+        char mem_file_name[30];
+        char buf[4096];
+        int p1 = getpid();
+        int mem_fd = -1;
+        //int p2 = PIN_GetPid();
+        //cout << dec << p1 << std::endl;
+        //cout << dec << p2 << std::endl;
+
+        sprintf(mem_file_name, "/proc/%d/mem", p1);
+        if ((mem_fd = open(mem_file_name, O_RDONLY)) < 0) {
+            cout << "error opening proc" << endl;
+        } else {
+
+            //ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+            //waitpid(pid, NULL, 0);
+            //
+            //0x8048000  0x8049000     0x1000
+            if (lseek(mem_fd, 0x8048000, SEEK_SET) < 0) {
+            //if (< 0) {
+                cout << "error lseeking" << endl;
+            }
+
+            int res = 0;
+
+            if ((res=read(mem_fd, buf, 0x1000)) < 0) {
+                cout << "error reading" << endl;
+            }
+
+            //read(mem_fd, buf, _SC_PAGE_SIZE);
+            //ptrace(PTRACE_DETACH, pid, NULL, NULL);
+            //getpagesize()
+            //
+            close(mem_fd);
+        }
+
+        //INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(DoBreakpoint),
+                       //IARG_CONTEXT, // IARG_CONST_CONTEXT has much lower overhead
+                                     //// than IARG_CONTEX for passing the CONTEXT*
+                                     //// to the analysis routine. Note that IARG_CONST_CONTEXT
+                                     //// passes a read-only CONTEXT* to the analysis routine
+                       //IARG_THREAD_ID, IARG_END);
     }
 
-    std::string mod_name = getModule(ceip);
+    //std::string mod_name = getModule(ceip);
 
-    INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(dump_shellcode),
-            IARG_PTR, new std::string(dumpInstruction(ins)),
-            IARG_CONTEXT, IARG_END
-            );
+    //INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(dump_shellcode),
+            //IARG_PTR, new std::string(dumpInstruction(ins)),
+            //IARG_CONTEXT, IARG_END
+            //);
 }
 
 // Instrumentation callbacks
@@ -245,7 +284,7 @@ VOID Image(IMG img, VOID *v)
     if (RTN_Valid(mallocRtn))
     {
 
-        cout << "found _start at 0x" << hex << RTN_Address(mallocRtn) << std::endl;
+        cout << "found _start at 0x" << hex << RTN_Address(mallocRtn) << endl;
         //RTN_Open(mallocRtn);
 
         //// Instrument malloc() to print the input argument value and the return value.
@@ -263,7 +302,7 @@ VOID Image(IMG img, VOID *v)
     RTN freeRtn = RTN_FindByName(img, MAIN);
     if (RTN_Valid(freeRtn))
     {
-        cout << "found main at 0x" << hex << RTN_Address(freeRtn) << std::endl;
+        cout << "found main at 0x" << hex << RTN_Address(freeRtn) << endl;
         //RTN_Open(freeRtn);
         //// Instrument free() to print the input argument value.
         //RTN_InsertCall(freeRtn, IPOINT_BEFORE, (AFUNPTR)Arg1Before,
@@ -275,7 +314,7 @@ VOID Image(IMG img, VOID *v)
 
     if (IMG_IsMainExecutable(img)) {
         entryPoint = IMG_Entry(img);
-        cout << hex << entryPoint << std::endl;
+        cout << hex << entryPoint << endl;
     }
 }
 
