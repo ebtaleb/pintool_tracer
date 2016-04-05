@@ -79,11 +79,11 @@ procmap exec(const char* cmd) {
     return res;
 }
 
-int main(int argc, const char *argv[])
-{
-    char cmd[30];
-    procmap p;
-    sprintf(cmd, "cat /proc/%d/maps", getpid());
-    p = exec(cmd);
-    return 0;
-}
+//int main(int argc, const char *argv[])
+//{
+    //char cmd[30];
+    //procmap p;
+    //sprintf(cmd, "cat /proc/%d/maps", getpid());
+    //p = exec(cmd);
+    //return 0;
+//}
