@@ -5,10 +5,10 @@
 #include <cstdio>
 #include <memory>
 #include <locale>
+#include <cctype>
+#include <tuple>
 #include <map>
-#include <cstdlib>
 
-#include <stdint.h>
 #include <unistd.h>
 
 using namespace std;
@@ -17,7 +17,7 @@ using namespace std;
 // // Returns false if the string contains any non-ASCII characters
 bool is_only_ascii_whitespace( const std::string& str )
 {
-    std::string::const_iterator it = str.begin();
+    auto it = str.begin();
     do {
         if (it == str.end()) return true;
     } while (*it >= 0 && *it <= 0x7f && std::isspace(*(it++)));
@@ -42,26 +42,11 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
-struct d {
-    int64_t start_ofs;
-    int64_t end_ofs;
-    int size;
-    std::string name;
-
-    d & operator=(const d & first)
-    {
-        start_ofs = first.start_ofs;
-        end_ofs = first.end_ofs;
-        size = first.size;
-        name = first.name;
-    }
-};
-
+typedef tuple<int64_t, int64_t, int, string> d;
 typedef map<string, d> procmap;
 
 procmap exec(const char* cmd) {
-    FILE *pipe=popen(cmd, "r");
-    d first;
+    std::shared_ptr<FILE> pipe(popen(cmd, "r"), pclose);
     procmap res;
     if (!pipe) {
         cout << "ERROR" << endl;
@@ -69,39 +54,32 @@ procmap exec(const char* cmd) {
     }
     char buffer[128];
     vector<string> v;
-    while (!feof(pipe)) {
-        if (fgets(buffer, 128, pipe) != NULL) {
+    while (!feof(pipe.get())) {
+        if (fgets(buffer, 128, pipe.get()) != NULL) {
             v = split(buffer, ' ');
 
             vector<string> range = split(v[0], '-');
-            int64_t start = strtoul(range[0].c_str(), NULL, 16);
-            int64_t end = strtoul(range[1].c_str(), NULL, 16);
+            int64_t start = stoul(range[0], nullptr, 16);
+            int64_t end = stoul(range[1], nullptr, 16);
 
             string perm = v[1];
 
-            //d *first = new d;
-            first.start_ofs = start;
-            first.end_ofs = end;
-            first.size = (int)end - start;
-            first.name = perm;
-
+            auto first = std::make_tuple (start, end, (int)end - start, perm);
             res[v[0]] = first;
         }
     }
 
-    pclose(pipe);
-
     typedef map<string, d>::iterator it_type;
 
     for(it_type iterator = res.begin(); iterator != res.end(); iterator++) {
-        d n = iterator->second;
-        cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.name << endl;
+        auto n = iterator->second;
+        cout << hex << get<0>(n) << "-" << get<1>(n) << " " << get<2>(n) << " " << get<3>(n) << endl;
     }
 
     return res;
 }
 
-//int main(int argc, const char *argv[]
+//int main(int argc, const char *argv[])
 //{
     //char cmd[30];
     //procmap p;

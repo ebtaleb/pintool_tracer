@@ -74,24 +74,40 @@ LIB_ROOTS :=
 # See makefile.default.rules for the default build rules.
 
 CPP11FLAGS := -std=c++11
-CPP11LIBS := -Wl,--no-as-needed -lpthread
+CPP11LIBS := -Wl,--no-as-needed
 
-TOOL_CXXFLAGS += $(CPP11FLAGS)
+SM_F :=
+
+#TOOL_CXXFLAGS += $(CPP11FLAGS)
+#TOOL_LIBS += $(CPP11LIBS)
+#TOOL_CXXFLAGS += -stdlib=libc++
+TOOL_LIBS += -lc++
+
+ifeq ($(TARGET),ia32)
+	SM_F += -m32
+endif
 
 $(OBJDIR)splitmap$(OBJ_SUFFIX): splitmap.cpp
-	$(CXX) $< -fPIC -fabi-version=2 -c -o $@ $(CPP11FLAGS) $(CPP11LIBS) -lstdc++
-	#$(CXX) $(TOOL_CXXFLAGS) $(COMP_OBJ) $@ $< $(CPP11LIBS)
+	$(CXX) $< -fPIC -fno-exceptions $(SM_F) -c -o $@
 
 $(OBJDIR)MyPinTool$(OBJ_SUFFIX): MyPinTool.cpp
-	$(CXX) $(TOOL_CXXFLAGS) $(COMP_OBJ) $@ $< $(CPP11LIBS)
+	$(CXX) $(TOOL_CXXFLAGS) -fno-exceptions $(COMP_OBJ) $@ $<
 
 $(OBJDIR)MyPinTool$(PINTOOL_SUFFIX): $(OBJDIR)MyPinTool$(OBJ_SUFFIX) $(OBJDIR)splitmap$(OBJ_SUFFIX)
 	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE) $@ $(^:%.h=) $(TOOL_LPATHS) $(TOOL_LIBS)
+
+run-64:
+	$(PIN_ROOT)/pin -t obj-intel64/MyPinTool.so -f 2 -- /bin/ls
+
+run-debug32:
+	gcc -m32 -g hw.c
+	$(PIN_ROOT)/pin -appdebug -t obj-ia32/MyPinTool.so -f 2 -- ./a.out
 
 .PHONY: cleana
 
 cleana:
 	make clean
 	rm -f *.o
+	rm -rf obj-ia32
 
 # vim: ai:ts=4:sw=4:et!:ft=make

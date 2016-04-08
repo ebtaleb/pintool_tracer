@@ -1,5 +1,3 @@
-#include "pin.H"
-#include "instlib.H"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -8,6 +6,9 @@
 
 #include <unistd.h>
 #include <fcntl.h>
+
+#include "pin.H"
+#include "instlib.H"
 
 std::ostream *out = &cerr;
 

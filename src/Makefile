@@ -22,9 +22,3 @@ include $(TOOLS_ROOT)/Config/makefile.default.rules
 #
 ##############################################################
 
-run-64:
-	$(PIN_ROOT)/pin -t obj-intel64/MyPinTool.so -f 2 -- /bin/ls
-
-run-debug32:
-	gcc -m32 -g hw.c
-	$(PIN_ROOT)/pin -appdebug -t obj-ia32/MyPinTool.so -f 2 -- ./a.out
