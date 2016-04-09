@@ -1,10 +1,7 @@
-#include <string>
 #include <sstream>
 #include <vector>
 #include <iostream>
 #include <cstdio>
-#include <memory>
-#include <locale>
 #include <map>
 #include <cstdlib>
 
@@ -46,14 +43,14 @@ struct d {
     int64_t start_ofs;
     int64_t end_ofs;
     int size;
-    std::string name;
+    std::string perm;
 
     d & operator=(const d & first)
     {
         start_ofs = first.start_ofs;
         end_ofs = first.end_ofs;
         size = first.size;
-        name = first.name;
+        perm = first.perm;
     }
 };
 
@@ -79,11 +76,10 @@ procmap exec(const char* cmd) {
 
             string perm = v[1];
 
-            //d *first = new d;
             first.start_ofs = start;
             first.end_ofs = end;
             first.size = (int)end - start;
-            first.name = perm;
+            first.perm = perm;
 
             res[v[0]] = first;
         }
@@ -95,17 +91,17 @@ procmap exec(const char* cmd) {
 
     for(it_type iterator = res.begin(); iterator != res.end(); iterator++) {
         d n = iterator->second;
-        cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.name << endl;
+        cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.perm << endl;
     }
 
     return res;
 }
 
-//int main(int argc, const char *argv[]
-//{
-    //char cmd[30];
-    //procmap p;
-    //sprintf(cmd, "cat /proc/%d/maps", getpid());
-    //p = exec(cmd);
-    //return 0;
-//}
+int main(int argc, const char *argv[])
+{
+    char cmd[30];
+    procmap p;
+    sprintf(cmd, "cat /proc/%d/maps", getpid());
+    p = exec(cmd);
+    return 0;
+}

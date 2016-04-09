@@ -73,28 +73,28 @@ LIB_ROOTS :=
 # This section contains the build rules for all binaries that have special build rules.
 # See makefile.default.rules for the default build rules.
 
-CPP11FLAGS := -std=c++11
-CPP11LIBS := -Wl,--no-as-needed
+#CPP11FLAGS := -std=c++11
+#CPP11LIBS := -Wl,--no-as-needed
 
-SM_F :=
+#SM_F :=
 
-#TOOL_CXXFLAGS += $(CPP11FLAGS)
-#TOOL_LIBS += $(CPP11LIBS)
-#TOOL_CXXFLAGS += -stdlib=libc++
-TOOL_LIBS += -lc++
+##TOOL_CXXFLAGS += $(CPP11FLAGS)
+##TOOL_LIBS += $(CPP11LIBS)
+##TOOL_CXXFLAGS += -stdlib=libc++
+#TOOL_LIBS += -lc++
 
-ifeq ($(TARGET),ia32)
-	SM_F += -m32
-endif
+#ifeq ($(TARGET),ia32)
+	#SM_F += -m32
+#endif
 
-$(OBJDIR)splitmap$(OBJ_SUFFIX): splitmap.cpp
-	$(CXX) $< -fPIC -fno-exceptions $(SM_F) -c -o $@
+#$(OBJDIR)splitmap$(OBJ_SUFFIX): splitmap.cpp
+	#$(CXX) $< -fPIC -fno-exceptions $(SM_F) -c -o $@
 
-$(OBJDIR)MyPinTool$(OBJ_SUFFIX): MyPinTool.cpp
-	$(CXX) $(TOOL_CXXFLAGS) -fno-exceptions $(COMP_OBJ) $@ $<
+#$(OBJDIR)MyPinTool$(OBJ_SUFFIX): MyPinTool.cpp
+	#$(CXX) $(TOOL_CXXFLAGS) -fno-exceptions $(COMP_OBJ) $@ $<
 
-$(OBJDIR)MyPinTool$(PINTOOL_SUFFIX): $(OBJDIR)MyPinTool$(OBJ_SUFFIX) $(OBJDIR)splitmap$(OBJ_SUFFIX)
-	$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE) $@ $(^:%.h=) $(TOOL_LPATHS) $(TOOL_LIBS)
+#$(OBJDIR)MyPinTool$(PINTOOL_SUFFIX): $(OBJDIR)MyPinTool$(OBJ_SUFFIX) $(OBJDIR)splitmap$(OBJ_SUFFIX)
+	#$(LINKER) $(TOOL_LDFLAGS_NOOPT) $(LINK_EXE) $@ $(^:%.h=) $(TOOL_LPATHS) $(TOOL_LIBS)
 
 run-64:
 	$(PIN_ROOT)/pin -t obj-intel64/MyPinTool.so -f 2 -- /bin/ls
@@ -110,4 +110,4 @@ cleana:
 	rm -f *.o
 	rm -rf obj-ia32
 
-# vim: ai:ts=4:sw=4:et!:ft=make
+## vim: ai:ts=4:sw=4:et!:ft=make
