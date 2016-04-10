@@ -4,24 +4,23 @@
 #include <algorithm>
 #include <map>
 
+#include <sstream>
+#include <vector>
+#include <locale>
+
+#include <cstdio>
+#include <cstdlib>
+
+#include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
 
 #include "pin.H"
 #include "instlib.H"
 
-#include <sstream>
-#include <vector>
-#include <cstdio>
-#include <cstdlib>
-#include <locale>
-
-#include <stdint.h>
-
 using namespace std;
 
-// Returns false if the string contains any non-whitespace characters
-// // Returns false if the string contains any non-ASCII characters
+// Returns false if the string contains any non-whitespace characters or any non-ASCII characters
 bool is_only_ascii_whitespace( const std::string& str )
 {
     std::locale loc;
@@ -29,8 +28,7 @@ bool is_only_ascii_whitespace( const std::string& str )
     do {
         if (it == str.end()) return true;
     } while (*it >= 0 && *it <= 0x7f && std::isspace(*(it++), loc));
-    // one of these conditions will be optimized away by the compiler,
-    // which one depends on whether char is signed or not
+
     return false;
 }
 
@@ -55,6 +53,7 @@ struct d {
     int64_t end_ofs;
     int size;
     std::string perm;
+    std::string name;
 
     d & operator=(const d & first)
     {
@@ -62,11 +61,13 @@ struct d {
         end_ofs = first.end_ofs;
         size = first.size;
         perm = first.perm;
+        name = first.name;
         return *this;
     }
 };
 
 typedef map<string, d> procmap;
+typedef map<string, d>::iterator it_type;
 
 procmap exec(const char* cmd) {
     FILE *pipe=popen(cmd, "r");
@@ -76,36 +77,66 @@ procmap exec(const char* cmd) {
         cout << "ERROR" << endl;
         return res;
     }
-    char buffer[128];
+    char buffer[256];
     vector<string> v;
     while (!feof(pipe)) {
-        if (fgets(buffer, 128, pipe) != NULL) {
+
+        if (fgets(buffer, 256, pipe) != NULL) {
+
             v = split(buffer, ' ');
 
+            if (v[1][0] != 'r') {
+                continue;
+            }
+
             vector<string> range = split(v[0], '-');
-            int64_t start = strtoul(range[0].c_str(), NULL, 16);
-            int64_t end = strtoul(range[1].c_str(), NULL, 16);
+            string s1 = v[v.size()-1];
 
-            string perm = v[1];
+            if (s1.find("lib") != std::string::npos) {
+                continue;
+            }
 
-            //d *first = new d;
-            first.start_ofs = start;
-            first.end_ofs = end;
-            first.size = (int)end - start;
-            first.perm= perm;
+            if (s1.find("vvar") != std::string::npos) {
+                continue;
+            }
+
+            if (s1.find("vdso") != std::string::npos) {
+                continue;
+            }
+
+            if (s1.find("vsyscall") != std::string::npos) {
+                continue;
+            }
+
+            if (s1.find("MyPinTool.so") != std::string::npos) {
+                continue;
+            }
+
+            if (s1.find("pincrt") != std::string::npos) {
+                continue;
+            }
+
+            if (s1.find("pinbin") != std::string::npos) {
+                continue;
+            }
+
+            first.start_ofs = strtoul(range[0].c_str(), NULL, 16);
+            first.end_ofs = strtoul(range[1].c_str(), NULL, 16);
+            first.size = (int)first.end_ofs - first.start_ofs;
+            first.perm = v[1];
+            first.name = s1;
 
             res[v[0]] = first;
+
         }
     }
 
     pclose(pipe);
 
-    typedef map<string, d>::iterator it_type;
-
-    for(it_type iterator = res.begin(); iterator != res.end(); iterator++) {
-        d n = iterator->second;
-        cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.perm<< endl;
-    }
+    //for(it_type iterator = res.begin(); iterator != res.end(); iterator++) {
+        //d n = iterator->second;
+        //cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.perm <<  " " << n.name << endl;
+    //}
 
     return res;
 }
@@ -277,22 +308,8 @@ std::string dumpContext(CONTEXT* ctxt)
 void dump_shellcode(std::string* instructionString, CONTEXT* ctxt)
 {
     std::stringstream ss;
-
-    //ss << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EIP);
-    //return ss.str();
     *out << ss.str() << *instructionString << dumpContext(ctxt) << endl;
 }
-
-//static void DoBreakpoint(CONTEXT *ctxt, THREADID tid)
-//{
-    //if (IsFirstBreakpoint)
-    //{
-        //std::cout << "Tool stopping at breakpoint" << std::endl;
-        //IsFirstBreakpoint = FALSE;
-        //PIN_ApplicationBreakpoint(ctxt, tid, KnobWaitForDebugger.Value(), "The tool wants to stop");
-        //PIN_ApplicationBreakpoint(ctxt, tid, true, "The tool wants to stop");
-    //}
-//}
 
 void traceInst(INS ins, VOID*)
 {
@@ -304,54 +321,41 @@ void traceInst(INS ins, VOID*)
     if (ceip == entryPoint) {
 
         char mem_file_name[30];
-        char buf[4096];
+        char buf[40960];
         int p1 = getpid();
         int mem_fd = -1;
-        //int p2 = PIN_GetPid();
-        //cout << dec << p1 << std::endl;
-        //cout << dec << p2 << std::endl;
 
         sprintf(mem_file_name, "/proc/%d/mem", p1);
         if ((mem_fd = open(mem_file_name, O_RDONLY)) < 0) {
             cout << "error opening proc" << endl;
         } else {
 
-            //ptrace(PTRACE_ATTACH, pid, NULL, NULL);
-            //waitpid(pid, NULL, 0);
-            //
-            //0x8048000  0x8049000     0x1000
-            if (lseek(mem_fd, 0x8048000, SEEK_SET) < 0) {
-            //if (< 0) {
-                cout << "error lseeking" << endl;
+            char cmd[30];
+            sprintf(cmd, "cat /proc/%d/maps", p1);
+            procmap p = exec(cmd);
+
+            for(it_type iterator = p.begin(); iterator != p.end(); iterator++) {
+                d n = iterator->second;
+                cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.perm << " " << n.name << endl;
+
+                if (lseek64(mem_fd, n.start_ofs, SEEK_SET) < 0) {
+                    cout << "error lseeking from " << n.start_ofs << endl;
+                    cout << "size is " << lseek64(mem_fd, (size_t)0, SEEK_END) << endl;
+                    continue;
+                }
+
+                int res = 0;
+
+                int page_size = getpagesize();
+                if ((res=read(mem_fd, buf, page_size)) < 0) {
+                    cout << "error reading" << endl;
+                    continue;
+                }
             }
 
-            int res = 0;
-
-            if ((res=read(mem_fd, buf, 0x1000)) < 0) {
-                cout << "error reading" << endl;
-            }
-
-            //read(mem_fd, buf, _SC_PAGE_SIZE);
-            //ptrace(PTRACE_DETACH, pid, NULL, NULL);
-            //getpagesize()
-            //
             close(mem_fd);
         }
-
-        //INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(DoBreakpoint),
-                       //IARG_CONTEXT, // IARG_CONST_CONTEXT has much lower overhead
-                                     //// than IARG_CONTEX for passing the CONTEXT*
-                                     //// to the analysis routine. Note that IARG_CONST_CONTEXT
-                                     //// passes a read-only CONTEXT* to the analysis routine
-                       //IARG_THREAD_ID, IARG_END);
     }
-
-    //std::string mod_name = getModule(ceip);
-
-    //INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(dump_shellcode),
-            //IARG_PTR, new std::string(dumpInstruction(ins)),
-            //IARG_CONTEXT, IARG_END
-            //);
 }
 
 // Instrumentation callbacks
@@ -380,37 +384,17 @@ VOID Trace(TRACE trace, VOID *v)
 
 VOID Image(IMG img, VOID *v)
 {
-    //  Find the malloc() function.
     RTN mallocRtn = RTN_FindByName(img, START);
     if (RTN_Valid(mallocRtn))
     {
 
         cout << "found _start at 0x" << hex << RTN_Address(mallocRtn) << endl;
-        //RTN_Open(mallocRtn);
-
-        //// Instrument malloc() to print the input argument value and the return value.
-        //RTN_InsertCall(mallocRtn, IPOINT_BEFORE, (AFUNPTR)Arg1Before,
-                       //IARG_ADDRINT, MALLOC,
-                       //IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                       //IARG_END);
-        //RTN_InsertCall(mallocRtn, IPOINT_AFTER, (AFUNPTR)MallocAfter,
-                       //IARG_FUNCRET_EXITPOINT_VALUE, IARG_END);
-
-        //RTN_Close(mallocRtn);
     }
 
-    // Find the free() function.
     RTN freeRtn = RTN_FindByName(img, MAIN);
     if (RTN_Valid(freeRtn))
     {
         cout << "found main at 0x" << hex << RTN_Address(freeRtn) << endl;
-        //RTN_Open(freeRtn);
-        //// Instrument free() to print the input argument value.
-        //RTN_InsertCall(freeRtn, IPOINT_BEFORE, (AFUNPTR)Arg1Before,
-                       //IARG_ADDRINT, FREE,
-                       //IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
-                       //IARG_END);
-        //RTN_Close(freeRtn);
     }
 
     if (IMG_IsMainExecutable(img)) {
@@ -429,8 +413,7 @@ VOID Image(IMG img, VOID *v)
 int main(int argc, char *argv[])
 {
     PIN_InitSymbols();
-    // Initialize PIN library. Print help message if -h(elp) is specified
-    // in the command line or the command line is invalid
+
     if( PIN_Init(argc,argv) )
     {
        return Usage();
