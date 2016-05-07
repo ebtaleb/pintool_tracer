@@ -293,6 +293,24 @@ std::string dumpContext(CONTEXT* ctxt)
 {
     std::stringstream ss;
 
+#ifdef TARGET_IA32E
+    ss << "RAX=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GAX) << ", "
+       << "RCX=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GCX) << ", "
+       << "RDX=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GDX) << ", "
+       << "RBX=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GBX) << ", "
+       << "RSP=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_STACK_PTR) << ", "
+       << "RBP=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GBP) << ", "
+       << "RSI=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GSI) << ", "
+       << "RDI=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_GDI) << ", "
+       << "R8=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R8) << ", "
+       << "R9=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R9) << ", "
+       << "R10=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R10) << ", "
+       << "R11=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R11) << ", "
+       << "R12=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R12) << ", "
+       << "R13=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R13) << ", "
+       << "R14=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R14) << ", "
+       << "R15=" << uppercase << setfill('0') << setw(16) << hex << PIN_GetContextReg(ctxt, REG_R15);
+#else
     ss << "EAX=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EAX) << ", "
        << "ECX=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_ECX) << ", "
        << "EDX=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EDX) << ", "
@@ -301,6 +319,7 @@ std::string dumpContext(CONTEXT* ctxt)
        << "EBP=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EBP) << ", "
        << "ESI=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_ESI) << ", "
        << "EDI=" << uppercase << setfill('0') << setw(8) << hex << PIN_GetContextReg(ctxt, REG_EDI);
+#endif
 
     return ss.str();
 }
@@ -334,9 +353,15 @@ void traceInst(INS ins, VOID*)
             sprintf(cmd, "cat /proc/%d/maps", p1);
             procmap p = exec(cmd);
 
+            int page_size = getpagesize();
+            int res = 0;
+
             for(it_type iterator = p.begin(); iterator != p.end(); iterator++) {
                 d n = iterator->second;
                 cout << hex << n.start_ofs << "-" << n.end_ofs << " " << n.size << " " << n.perm << " " << n.name << endl;
+
+                //int num_pages = (n.end_ofs - n.start_ofs) / page_size;
+                int to_read = n.size;
 
                 if (lseek64(mem_fd, n.start_ofs, SEEK_SET) < 0) {
                     cout << "error lseeking from " << n.start_ofs << endl;
@@ -344,18 +369,24 @@ void traceInst(INS ins, VOID*)
                     continue;
                 }
 
-                int res = 0;
+                while (to_read > 0) {
 
-                int page_size = getpagesize();
-                if ((res=read(mem_fd, buf, page_size)) < 0) {
-                    cout << "error reading" << endl;
-                    continue;
+                    if ((res = read(mem_fd, buf, page_size)) < 0) {
+                        cout << "error reading" << endl;
+                        continue;
+                    }
+
+                    to_read -= page_size;
                 }
             }
 
             close(mem_fd);
         }
     }
+
+    INS_InsertCall(ins, IPOINT_BEFORE, AFUNPTR(dump_shellcode),
+                   IARG_PTR, new std::string(dumpInstruction(ins)),
+                   IARG_CONTEXT, IARG_END);
 }
 
 // Instrumentation callbacks
