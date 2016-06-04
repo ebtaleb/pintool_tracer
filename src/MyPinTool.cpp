@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <inttypes.h>
+
 #include "pin.H"
 #include "instlib.H"
 
@@ -363,9 +365,25 @@ void traceInst(INS ins, VOID*)
                 //int num_pages = (n.end_ofs - n.start_ofs) / page_size;
                 int to_read = n.size;
 
+
+                char memdump_file_name[500];
+                FILE *memdf = NULL;
+
+
+                sprintf(memdump_file_name, "p%d-" "%" PRIx64 "-" "%" PRIx64 "-%s", p1, n.start_ofs, n.end_ofs, n.name.c_str());
+                cout << "dumping " << std::string(memdump_file_name) << endl;
+                memdf = fopen(memdump_file_name, "w+b");
+
+                if (memdf == NULL)
+                {
+                    cout << "error opening file" << endl;
+                    continue;
+                }
+
                 if (lseek64(mem_fd, n.start_ofs, SEEK_SET) < 0) {
                     cout << "error lseeking from " << n.start_ofs << endl;
                     cout << "size is " << lseek64(mem_fd, (size_t)0, SEEK_END) << endl;
+                    fclose(memdf);
                     continue;
                 }
 
@@ -373,11 +391,19 @@ void traceInst(INS ins, VOID*)
 
                     if ((res = read(mem_fd, buf, page_size)) < 0) {
                         cout << "error reading" << endl;
+                        fclose(memdf);
                         continue;
                     }
 
-                    to_read -= page_size;
+                    cout << "read " << hex << res << "bytes" << endl;
+
+                    //fwrite (buf, page_size, 1, memdf);
+                    fwrite (buf, sizeof(char), res, memdf);
+                    to_read -= res;
+                    cout << hex << to_read << " bytes remaining" << endl;
                 }
+
+                fclose(memdf);
             }
 
             close(mem_fd);
